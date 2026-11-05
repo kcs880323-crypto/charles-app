@@ -77,5 +77,31 @@ class CliTest(unittest.TestCase):
         self.assertIn("카카오톡 미리보기", out.getvalue())
 
 
+
+class InitTest(unittest.TestCase):
+    def test_init_creates_files_without_overwriting(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d) / "config.toml"
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = main(["-c", str(cfg), "init", "--yes", "--no-auth", "--kakao-key", "KEY1"])
+            self.assertEqual(rc, 0)
+            self.assertTrue(cfg.is_file())
+            env = (Path(d) / ".env").read_text(encoding="utf-8")
+            self.assertIn("KAKAO_REST_API_KEY=KEY1", env)
+            token = [ln.split("=", 1)[1] for ln in env.splitlines() if ln.startswith("WEBHOOK_TOKEN=")][0]
+            self.assertGreaterEqual(len(token), 32)
+            self.assertIn("# 웹훅 인증 토큰", env)  # .env.example 주석 유지
+            if os.name == "posix":
+                self.assertEqual((Path(d) / ".env").stat().st_mode & 0o777, 0o600)
+            # 다시 실행해도 기존 값 유지
+            with redirect_stdout(io.StringIO()):
+                main(["-c", str(cfg), "init", "--yes", "--no-auth", "--kakao-key", "KEY2"])
+            env2 = (Path(d) / ".env").read_text(encoding="utf-8")
+            self.assertIn("KAKAO_REST_API_KEY=KEY1", env2)
+            self.assertIn(f"WEBHOOK_TOKEN={token}", env2)
+            self.assertIn(f"Bearer {token}", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

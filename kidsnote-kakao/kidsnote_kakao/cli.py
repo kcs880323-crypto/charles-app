@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import secrets
 import sys
 import time
@@ -282,6 +283,94 @@ def cmd_serve(cfg: Config, args) -> int:
     return 0
 
 
+# --- init (설정 마법사) -----------------------------------------------------------
+
+EXAMPLE_CONFIG = Path(__file__).resolve().parent.parent / "config.example.toml"
+
+
+def _read_env(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, _, v = line.partition("=")
+                out[k.strip()] = v.strip().strip("'\"")
+    return out
+
+
+def _write_env(path: Path, values: dict[str, str]) -> None:
+    """기존 .env 의 주석/순서를 유지하며 빈 값만 채운다(이미 값이 있으면 건드리지 않음)."""
+    from .util import write_private
+
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    done = set()
+    for i, line in enumerate(lines):
+        if "=" in line and not line.lstrip().startswith("#"):
+            k = line.split("=", 1)[0].strip()
+            if k in values and not line.split("=", 1)[1].strip():
+                lines[i] = f"{k}={values[k]}"
+            done.add(k)
+    lines += [f"{k}={v}" for k, v in values.items() if k not in done]
+    write_private(path, "\n".join(lines) + "\n")
+
+
+def cmd_init(args) -> int:
+    cfg_path = Path(args.config or "config.toml").expanduser().resolve()
+    base = cfg_path.parent
+    if not cfg_path.exists():
+        if not EXAMPLE_CONFIG.is_file():
+            print(f"예시 설정을 찾을 수 없습니다: {EXAMPLE_CONFIG}", file=sys.stderr)
+            return 2
+        cfg_path.write_text(EXAMPLE_CONFIG.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"[1/3] 설정 파일 생성: {cfg_path}")
+    else:
+        print(f"[1/3] 설정 파일 유지: {cfg_path}")
+
+    env_path = base / ".env"
+    if not env_path.exists():
+        example = EXAMPLE_CONFIG.parent / ".env.example"
+        if example.is_file():
+            from .util import write_private
+
+            write_private(env_path, example.read_text(encoding="utf-8"))
+    env = _read_env(env_path)
+    updates: dict[str, str] = {}
+    if not env.get("WEBHOOK_TOKEN"):
+        updates["WEBHOOK_TOKEN"] = secrets.token_urlsafe(32)
+    key = args.kakao_key or env.get("KAKAO_REST_API_KEY", "")
+    if not key and not args.yes:
+        key = input("카카오 REST API 키를 붙여넣으세요(나중에 하려면 그냥 Enter): ").strip()
+    if key and not env.get("KAKAO_REST_API_KEY"):
+        updates["KAKAO_REST_API_KEY"] = key
+    secret = args.kakao_secret or ""
+    if key and not secret and not env.get("KAKAO_CLIENT_SECRET") and not args.yes:
+        secret = input("Client Secret 을 켰다면 붙여넣으세요(안 켰으면 Enter): ").strip()
+    if secret and not env.get("KAKAO_CLIENT_SECRET"):
+        updates["KAKAO_CLIENT_SECRET"] = secret
+    _write_env(env_path, updates)
+    env = _read_env(env_path)
+    print(f"[2/3] 비밀값 파일: {env_path} (WEBHOOK_TOKEN {'생성됨' if 'WEBHOOK_TOKEN' in updates else '유지'})")
+    print(f"      폰 포워더 앱에 넣을 헤더 → Authorization: Bearer {env.get('WEBHOOK_TOKEN', '')}")
+
+    if not env.get("KAKAO_REST_API_KEY"):
+        print("[3/3] 카카오 키가 없어 인증은 건너뜁니다. 키를 받은 뒤 다시 'init' 을 실행하세요.")
+        return 0
+    if args.no_auth:
+        print("[3/3] 다음: python -m kidsnote_kakao kakao-auth --test")
+        return 0
+    print("[3/3] 카카오 인증을 시작합니다.\n")
+    for k, v in env.items():
+        if v:
+            os.environ[k] = v
+    try:
+        cfg = load_config(cfg_path)
+    except ConfigError as e:
+        print(f"설정 오류: {e}", file=sys.stderr)
+        return 2
+    args.test = True
+    return cmd_kakao_auth(cfg, args)
+
+
 # --- main ---------------------------------------------------------------------
 
 
@@ -291,6 +380,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-v", "--verbose", action="store_true")
     p.add_argument("--version", action="version", version=__version__)
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    i = sub.add_parser("init", help="처음 설정: config.toml/.env 만들기 + 카카오 인증까지 한 번에")
+    i.add_argument("--kakao-key", default="", help="카카오 REST API 키(안 주면 물어봄)")
+    i.add_argument("--kakao-secret", default="", help="클라이언트 시크릿(켠 경우)")
+    i.add_argument("--no-auth", action="store_true", help="파일만 만들고 카카오 인증은 나중에")
+    i.add_argument("--manual", action="store_true", help="카카오 인증 시 주소 붙여넣기 방식")
+    i.add_argument("-y", "--yes", action="store_true", help="묻지 않기")
+    i.set_defaults(func=None)
 
     sub.add_parser("serve", help="상시 구동").set_defaults(func=cmd_serve)
 
@@ -322,6 +419,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.cmd == "init":
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        return cmd_init(args)
     try:
         cfg = load_config(args.config)
     except ConfigError as e:

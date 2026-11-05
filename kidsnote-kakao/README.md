@@ -44,19 +44,25 @@
 5. **플랫폼 > Web > 사이트 도메인**에 `https://www.kidsnote.com` 등록 (메시지 안 링크/버튼이 열리려면 필요)
 6. (선택) **보안 > Client Secret** 을 켰다면 그 값도 복사 → `.env` 의 `KAKAO_CLIENT_SECRET`
 
-### 1. 설치·설정
+### 1. 설치·설정 — 명령 하나로
 
 ```bash
 git clone <이 저장소> && cd charles-app/kidsnote-kakao
-cp config.example.toml config.toml
-cp .env.example .env && chmod 600 .env
-python3 -c "import secrets;print(secrets.token_urlsafe(32))"   # → .env 의 WEBHOOK_TOKEN
-# .env 에 KAKAO_REST_API_KEY (+ KAKAO_CLIENT_SECRET) 입력
+python3 -m kidsnote_kakao init
 ```
+
+`init` 이 하는 일: `config.toml` 생성 → `.env` 생성(권한 0600) + `WEBHOOK_TOKEN` 자동 생성 →
+카카오 REST API 키(와 Client Secret) 입력받기 → 바로 2단계 카카오 인증 + 테스트 메시지까지.
+다시 실행해도 이미 있는 값은 덮어쓰지 않습니다. 폰 포워더에 넣을 `Authorization` 헤더 값도 출력해 줍니다.
+
+**Windows PC** 라면 `deploy\windows-setup.bat` 을 더블클릭하세요(Python 3.11+ 확인 → 시간대 데이터 설치 → `init`).
+
+수동으로 하려면: `cp config.example.toml config.toml`, `cp .env.example .env && chmod 600 .env` 후
+`.env` 에 `WEBHOOK_TOKEN`(16자 이상), `KAKAO_REST_API_KEY`(+ `KAKAO_CLIENT_SECRET`) 입력.
 
 비밀값(토큰·비밀번호·쿠키)은 **`.env` 또는 환경변수에만** 둡니다. `config.toml`, `.env`, `data/` 는 `.gitignore` 에 들어 있습니다.
 
-### 2. 카카오 토큰 발급 + 카톡 1건 수신 확인
+### 2. 카카오 토큰 발급 + 카톡 1건 수신 확인 (`init` 에서 이미 했다면 건너뛰기)
 
 ```bash
 python3 -m kidsnote_kakao kakao-auth --test
@@ -93,11 +99,17 @@ curl -s -X POST http://127.0.0.1:8787/webhook/android \
 
 ### 6. 상시 구동
 
+리눅스(라즈베리파이·NAS·VM):
+
 ```bash
 sudo cp deploy/kidsnote-kakao.service /etc/systemd/system/   # User/WorkingDirectory 수정
 sudo systemctl daemon-reload && sudo systemctl enable --now kidsnote-kakao
 journalctl -u kidsnote-kakao -f
 ```
+
+Windows: `deploy\windows-autostart.bat` 실행 → 작업 스케줄러에 '로그인 시 실행'으로 등록하고 바로 시작합니다.
+로그는 `data\bridge.log`, 해제는 `schtasks /Delete /TN kidsnote-kakao /F`.
+PC 가 절전/종료되면 알림도 멈추므로, 상시 켜 둘 기기(미니PC·NAS 등)가 더 적합합니다.
 
 ## 안드로이드 포워더 설정
 
@@ -250,6 +262,7 @@ Gmail 은 2단계 인증 + 앱 비밀번호를 `IMAP_PASSWORD` 에.
 ## 명령 모음
 
 ```bash
+python3 -m kidsnote_kakao init                  # 처음 설정(파일 생성 + 카카오 인증)
 python3 -m kidsnote_kakao serve                 # 상시 구동
 python3 -m kidsnote_kakao kakao-auth [--manual] [--test]
 python3 -m kidsnote_kakao kakao-refresh         # 토큰 강제 갱신
