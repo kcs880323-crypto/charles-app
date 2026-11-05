@@ -1,0 +1,30 @@
+# systemd 서비스 (라즈베리파이 / 미니PC / VM / NAS)
+#   sudo cp deploy/kidsnote-kakao.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now kidsnote-kakao
+#   journalctl -u kidsnote-kakao -f
+# User / WorkingDirectory 는 실제 경로로 바꿀 것.
+
+[Unit]
+Description=Kidsnote -> KakaoTalk notification bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/kidsnote-kakao
+ExecStart=/usr/bin/python3 -m kidsnote_kakao -c config.toml serve
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+# 하드닝
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/pi/kidsnote-kakao/data
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+# kidsnote-kakao: 비밀값/상태/토큰은 커밋하지 않는다
+kidsnote-kakao/config.toml
+kidsnote-kakao/.env
+kidsnote-kakao/data/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/

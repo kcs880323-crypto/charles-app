@@ -1,0 +1,21 @@
+[project]
+name = "kidsnote-kakao"
+version = "0.1.0"
+description = "키즈노트 알림 → 카카오톡 '나에게 보내기' 브리지 (개인용)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []  # 표준 라이브러리만 사용
+
+[project.scripts]
+kidsnote-kakao = "kidsnote_kakao.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["kidsnote_kakao*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
